@@ -1,0 +1,78 @@
+
+import requests
+import json
+import time
+
+# Define your Instagram API credentials
+API_KEY = "709732454301958"
+API_SECRET = "a98b457d26eb743da48f8dc682bebcd5"
+ACCESS_TOKEN = "IGQWRPTDN5dl9ZAcHpUNzhaR1ZAMN09LSDJnWVlyWlVuVk51SU5jSlRITTlYSDlBdk1KVFI2WVpCRmpnM3A1TUJMVm1OYUlvZAXBjaVVTbDhWOWxzbjFHMHpYcWlrM0ZAENW1qcTVTNXU4MkJXZAVBEd0FzMTZAfMzQxRTQZD"
+
+# Define the base URL for Instagram API
+BASE_URL = "https://api.instagram.com/v1"
+
+# Helper function to make API requests with rate limiting
+def make_request(url):
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print("Error occurred:", response.status_code)
+        return None
+
+# Function to scrape user profile data
+def scrape_user(username):
+    user_url = f"{BASE_URL}/users/{username}/?access_token={ACCESS_TOKEN}"
+    user_data = make_request(user_url)
+    if user_data:
+        # Extract relevant user information
+        user_id = user_data["data"]["id"]
+        full_name = user_data["data"]["full_name"]
+        bio = user_data["data"]["bio"]
+        # ... extract more fields as needed
+        print("User ID:", user_id)
+        print("Full Name:", full_name)
+        print("Bio:", bio)
+        # ... print more fields as needed
+
+# Function to scrape user's posts
+def scrape_posts(username):
+    posts_url = f"{BASE_URL}/users/{username}/media/recent/?access_token={ACCESS_TOKEN}"
+    posts_data = make_request(posts_url)
+    if posts_data:
+        for post in posts_data["data"]:
+            # Extract relevant post information
+            post_id = post["id"]
+            image_url = post["images"]["standard_resolution"]["url"]
+            caption = post["caption"]["text"]
+            # ... extract more fields as needed
+            print("Post ID:", post_id)
+            print("Image URL:", image_url)
+            print("Caption:", caption)
+            # ... print more fields as needed
+
+# Function to scrape user's followers
+def scrape_followers(username):
+    followers_url = f"{BASE_URL}/users/{username}/followed-by?access_token={ACCESS_TOKEN}"
+    followers_data = make_request(followers_url)
+    if followers_data:
+        for follower in followers_data["data"]:
+            # Extract relevant follower information
+            follower_id = follower["id"]
+            follower_username = follower["username"]
+            # ... extract more fields as needed
+            print("Follower ID:", follower_id)
+            print("Follower Username:", follower_username)
+            # ... print more fields as needed
+
+# Main function to run the scraping process
+def main():
+    username = "onlyjwarrier"
+    scrape_user(username)
+    scrape_posts(username)
+    scrape_followers(username)
+    # ... call more scraping functions as needed
+
+# Run the main function
+if __name__ == "__main__":
+    main()
