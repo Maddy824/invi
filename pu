@@ -1,78 +1,72 @@
-
-import requests
+import requests_html
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from pprint import pprint
 import json
-import time
+from selenium_stealth import stealth
 
-# Define your Instagram API credentials
-API_KEY = ""
-API_SECRET = ""
-ACCESS_TOKEN = ""
+usernames = ["kgff_ansclub"]
+proxy = "127.0.0.1:80"
+output = {}
 
-# Define the base URL for Instagram API
-BASE_URL = "https://api.instagram.com/v1"
-
-# Helper function to make API requests with rate limiting
-def make_request(url):
-    response = requests.get(url)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        print("Error occurred:", response.status_code)
-        return None
-
-# Function to scrape user profile data
-def scrape_user(username):
-    user_url = f"{BASE_URL}/users/{username}/?access_token={ACCESS_TOKEN}"
-    user_data = make_request(user_url)
-    if user_data:
-        # Extract relevant user information
-        user_id = user_data["data"]["id"]
-        full_name = user_data["data"]["full_name"]
-        bio = user_data["data"]["bio"]
-        # ... extract more fields as needed
-        print("User ID:", user_id)
-        print("Full Name:", full_name)
-        print("Bio:", bio)
-        # ... print more fields as needed
-
-# Function to scrape user's posts
-def scrape_posts(username):
-    posts_url = f"{BASE_URL}/users/{username}/media/recent/?access_token={ACCESS_TOKEN}"
-    posts_data = make_request(posts_url)
-    if posts_data:
-        for post in posts_data["data"]:
-            # Extract relevant post information
-            post_id = post["id"]
-            image_url = post["images"]["standard_resolution"]["url"]
-            caption = post["caption"]["text"]
-            # ... extract more fields as needed
-            print("Post ID:", post_id)
-            print("Image URL:", image_url)
-            print("Caption:", caption)
-            # ... print more fields as needed
-
-# Function to scrape user's followers
-def scrape_followers(username):
-    followers_url = f"{BASE_URL}/users/{username}/followed-by?access_token={ACCESS_TOKEN}"
-    followers_data = make_request(followers_url)
-    if followers_data:
-        for follower in followers_data["data"]:
-            # Extract relevant follower information
-            follower_id = follower["id"]
-            follower_username = follower["username"]
-            # ... extract more fields as needed
-            print("Follower ID:", follower_id)
-            print("Follower Username:", follower_username)
-            # ... print more fields as needed
-
-# Main function to run the scraping process
 def main():
-    username = "kgff_ansclub"
-    scrape_user(username)
-    scrape_posts(username)
-    scrape_followers(username)
-    # ... call more scraping functions as needed
+    for username in usernames:
+        scrape(username)
 
-# Run the main function
-if __name__ == "__main__":
+def prepare_browser():
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument(f'--proxy-server={proxy}')
+    chrome_options.add_argument("start-maximized")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    driver = webdriver.Chrome(options= chrome_options)
+    stealth(driver,
+            user_agent= 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.53 Safari/537.36',
+            languages= ["en-US", "en"],
+            vendor=  "Google Inc.",
+            platform=  "Win32",
+            webgl_vendor=  "Intel Inc.",
+            renderer=  "Intel Iris OpenGL Engine",
+            fix_hairline= False,
+            run_on_insecure_origins= False,
+            )
+    return driver
+
+
+def scrape(username):
+  url = f'https://instagram.com/{username}/?__a=1&__d=dis'
+  response = requests_html.HTMLSession().get(url)
+
+  # Check the response code
+  if response.status_code != 500:
+    print(f"Error: {response.status_code} response for {username}")
+    return
+
+  # Parse the JSON response
+  try:
+    data_json = response.json()
+    user_data = data_json['graphql']['user']
+    parse_data(username, user_data)
+  except json.decoder.JSONDecodeError:
+    print(f"Error: Could not decode JSON for {username}")
+def parse_data(username, user_data):
+  captions = []
+  if len(user_data['edge_owner_to_timeline_media']['edges']) > 0:
+    for node in user_data['edge_owner_to_timeline_media']['edges']:
+      if len(node['node']['edge_media_to_caption']['edges']) > 0:
+        if node['node']['edge_media_to_caption']['edges'][0]['node']['text']:
+          captions.append(node['node']['edge_media_to_caption']['edges'][0]['node']['text'])
+
+  try:
+    output[username] = {
+      'name': user_data['full_name'],
+      'category': user_data['category_name'],
+      'followers': user_data['edge_followed_by']['count'],
+      'posts': captions,
+    }
+  except json.decoder.JSONDecodeError:
+    print(f"Error: Could not decode JSON for {username}")
+
+if __name__ == '__main__':
     main()
+    pprint(output)
