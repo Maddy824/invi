@@ -4,9 +4,9 @@ import json
 import time
 
 # Define your Instagram API credentials
-API_KEY = "709732454301958"
-API_SECRET = "a98b457d26eb743da48f8dc682bebcd5"
-ACCESS_TOKEN = "IGQWRPTDN5dl9ZAcHpUNzhaR1ZAMN09LSDJnWVlyWlVuVk51SU5jSlRITTlYSDlBdk1KVFI2WVpCRmpnM3A1TUJMVm1OYUlvZAXBjaVVTbDhWOWxzbjFHMHpYcWlrM0ZAENW1qcTVTNXU4MkJXZAVBEd0FzMTZAfMzQxRTQZD"
+API_KEY = ""
+API_SECRET = ""
+ACCESS_TOKEN = ""
 
 # Define the base URL for Instagram API
 BASE_URL = "https://api.instagram.com/v1"
