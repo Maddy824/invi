@@ -67,7 +67,7 @@ def scrape_followers(username):
 
 # Main function to run the scraping process
 def main():
-    username = "onlyjwarrier"
+    username = "kgff_ansclub"
     scrape_user(username)
     scrape_posts(username)
     scrape_followers(username)
