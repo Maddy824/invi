@@ -4,6 +4,8 @@ from selenium.webdriver.common.by import By
 from pprint import pprint
 import json
 from selenium_stealth import stealth
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
 
 usernames = ["jlo"]
 proxy = "127.0.0.10:80"
@@ -12,6 +14,7 @@ output = {}
 def main():
     for username in usernames:
         scrape(username)
+    pprint(output)
 
 def prepare_browser():
     chrome_options = webdriver.ChromeOptions()
@@ -50,22 +53,25 @@ def scrape(username):
   except json.decoder.JSONDecodeError:
     print(f"Error: Could not decode JSON for {username}")
 def parse_data(username, user_data):
-  captions = []
-  if len(user_data['edge_owner_to_timeline_media']['edges']) > 0:
-    for node in user_data['edge_owner_to_timeline_media']['edges']:
-      if len(node['node']['edge_media_to_caption']['edges']) > 0:
-        if node['node']['edge_media_to_caption']['edges'][0]['node']['text']:
-          captions.append(node['node']['edge_media_to_caption']['edges'][0]['node']['text'])
+    captions = []
+    likes = []
+    if len(user_data['edge_owner_to_timeline_media']['edges']) > 0:
+        for node in user_data['edge_owner_to_timeline_media']['edges']:
+            if len(node['node']['edge_media_to_caption']['edges']) > 0:
+                if node['node']['edge_media_to_caption']['edges'][0]['node']['text']:
+                    captions.append(node['node']['edge_media_to_caption']['edges'][0]['node']['text'])
+            likes.append(node['node']['edge_liked_by']['count'])  # Add this line to get the number of likes
 
-  try:
-    output[username] = {
-      'name': user_data['full_name'],
-      'category': user_data['category_name'],
-      'followers': user_data['edge_followed_by']['count'],
-      'posts': captions,
-    }
-  except json.decoder.JSONDecodeError:
-    print(f"Error: Could not decode JSON for {username}")
+    try:
+        output[username] = {
+            'name': user_data['full_name'],
+            'category': user_data['category_name'],
+            'followers': user_data['edge_followed_by']['count'],
+            'posts': captions,
+            'likes': likes  # Add the likes to the output dictionary
+        }
+    except json.decoder.JSONDecodeError:
+        print(f"Error: Could not decode JSON for {username}")
 
 if __name__ == '__main__':
     main()
