@@ -6,6 +6,7 @@ import json
 from selenium_stealth import stealth
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+import time
 
 usernames = ["jlo"]
 proxy = "127.0.0.10:80"
@@ -37,41 +38,84 @@ def prepare_browser():
 
 
 def scrape(username):
-  url = f'https://instagram.com/{username}/?__a=1&__d=dis'
-  response = requests_html.HTMLSession().get(url)
+    url = f'https://instagram.com/{username}/?__a=1&__d=dis'
+    response = requests_html.HTMLSession().get(url)
 
-  # Check the response code
-  if response.status_code != 200:
-    print(f"Error: {response.status_code} response for {username}")
-    return
+    # Check the response code
+    if response.status_code != 200:
+        print(f"Error: {response.status_code} response for {username}")
+        return
 
-  # Parse the JSON response
-  try:
-    data_json = response.json()
-    user_data = data_json['graphql']['user']
-    parse_data(username, user_data)
-  except json.decoder.JSONDecodeError:
-    print(f"Error: Could not decode JSON for {username}")
+    # Parse the JSON response
+    try:
+        data_json = response.json()
+        user_data = data_json['graphql']['user']
+        parse_data(username, user_data)
+
+        # Delay before scraping comments
+        time.sleep(2)
+
+        for post in output[username]['posts']:
+            if 'shortcode' in post:
+                shortcode = post['shortcode']
+                scrape_comments(username, shortcode)
+    except json.decoder.JSONDecodeError:
+        print(f"Error: Could not decode JSON for {username}")
 def parse_data(username, user_data):
-    captions = []
-    likes = []
+    posts = []
     if len(user_data['edge_owner_to_timeline_media']['edges']) > 0:
         for node in user_data['edge_owner_to_timeline_media']['edges']:
+            post = {}
             if len(node['node']['edge_media_to_caption']['edges']) > 0:
                 if node['node']['edge_media_to_caption']['edges'][0]['node']['text']:
-                    captions.append(node['node']['edge_media_to_caption']['edges'][0]['node']['text'])
-            likes.append(node['node']['edge_liked_by']['count'])  # Add this line to get the number of likes
+                    post['caption'] = node['node']['edge_media_to_caption']['edges'][0]['node']['text']
+            post['likes'] = node['node']['edge_liked_by']['count']
+
+            # Scrape comments
+            comments = []
+            if 'edge_media_to_parent_comment' in node['node']:
+                comment_edges = node['node']['edge_media_to_parent_comment']['edges']
+                for comment_edge in comment_edges:
+                    comment = {}
+                    comment['text'] = comment_edge['node']['text']
+                    comment['likes'] = comment_edge['node']['edge_liked_by']['count']
+                    comments.append(comment)
+            post['comments'] = comments
+
+            posts.append(post)
 
     try:
         output[username] = {
             'name': user_data['full_name'],
             'category': user_data['category_name'],
             'followers': user_data['edge_followed_by']['count'],
-            'posts': captions,
-            'likes': likes  # Add the likes to the output dictionary
+            'posts': posts
         }
     except json.decoder.JSONDecodeError:
         print(f"Error: Could not decode JSON for {username}")
+def scrape_comments(username, shortcode):
+    url = f'https://www.instagram.com/p/{shortcode}/?__a=1'
+    response = requests_html.HTMLSession().get(url)
+
+    # Check the response code
+    if response.status_code != 200:
+        print(f"Error: {response.status_code} response for {username}'s post {shortcode}")
+        return
+
+    # Parse the JSON response
+    try:
+        data_json = response.json()
+        if 'edge_media_to_parent_comment' in data_json['graphql']['shortcode_media']:
+            comment_edges = data_json['graphql']['shortcode_media']['edge_media_to_parent_comment']['edges']
+            comments = []
+            for comment_edge in comment_edges:
+                comment = {}
+                comment['text'] = comment_edge['node']['text']
+                comment['likes'] = comment_edge['node']['edge_liked_by']['count']
+                comments.append(comment)
+            output[username]['posts'][shortcode]['comments'] = comments
+    except json.decoder.JSONDecodeError:
+        print(f"Error: Could not decode JSON for {username}'s post {shortcode}")
 
 if __name__ == '__main__':
     main()
