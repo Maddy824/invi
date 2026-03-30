@@ -1,0 +1,11 @@
+requests-html==0.10.0
+selenium==4.18.1
+selenium-stealth==1.0.6
+google-api-python-client==2.118.0
+python-dotenv==1.0.1
+schedule==1.2.1
+pymongo==4.6.1
+beautifulsoup4==4.12.3
+pandas==2.2.0
+textblob==0.18.0
+rich==13.7.0
