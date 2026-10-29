@@ -8,4 +8,4 @@ pymongo==4.6.1
 beautifulsoup4==4.12.3
 pandas==2.2.0
 textblob==0.18.0
-rich==13.7.0
+rich==15.0.0
