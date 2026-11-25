@@ -4,27 +4,26 @@ Social Media Scraping System — CLI Entry Point
 ================================================
 Usage:
     python main.py                     # run one full scrape cycle
+    python main.py --demo              # analyse bundled synthetic data offline
     python main.py --schedule          # run on a recurring schedule
     python main.py --platform instagram --target natgeo
     python main.py --platform youtube  --target "machine learning"
     python main.py --platform twitter  --target "python programming"
-    python main.py --report            # generate analytics report from latest data
 """
 
 import argparse
+import json
 import logging
 import sys
+from pathlib import Path
 
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
-import config
+import scrapers
 from analytics.analyzer import SocialAnalyzer
-from scrapers.instagram import InstagramScraper
-from scrapers.twitter import TwitterScraper
-from scrapers.youtube import YouTubeScraper
-from scheduler.runner import ScrapeScheduler
+from models.schemas import ScrapeResult
 from storage.exporter import DataExporter
 
 console = Console()
@@ -38,9 +37,9 @@ logging.basicConfig(
 logger = logging.getLogger("scraper")
 
 SCRAPERS = {
-    "instagram": InstagramScraper,
-    "twitter": TwitterScraper,
-    "youtube": YouTubeScraper,
+    "instagram": "InstagramScraper",
+    "twitter": "TwitterScraper",
+    "youtube": "YouTubeScraper",
 }
 
 
@@ -55,7 +54,7 @@ def single_scrape(platform: str, target: str):
     analyzer = SocialAnalyzer()
 
     console.print(f"\n[bold cyan]Scraping {platform}[/bold cyan] → {target}")
-    scraper_cls = SCRAPERS[platform]
+    scraper_cls = getattr(scrapers, SCRAPERS[platform])
 
     if platform in ("instagram", "twitter"):
         with scraper_cls() as scraper:
@@ -63,6 +62,9 @@ def single_scrape(platform: str, target: str):
     else:
         scraper = scraper_cls()
         result = scraper.scrape(target)
+
+    if result.errors:
+        raise RuntimeError(f"{platform} scrape failed: {'; '.join(result.errors)}")
 
     exporter.export(result)
     analyzer.add(result)
@@ -72,6 +74,24 @@ def single_scrape(platform: str, target: str):
     report = analyzer.generate_report(save=True)
     console.print("\n[bold green]Analytics report generated.[/bold green]")
     return report
+
+
+def run_demo():
+    """Run the real export and analytics pipeline on fictional records."""
+    fixture = Path(__file__).resolve().parent / "fixtures" / "demo_posts.json"
+    results = json.loads(fixture.read_text(encoding="utf-8"))
+    exporter = DataExporter()
+    analyzer = SocialAnalyzer()
+
+    console.print("[bold cyan]Offline demo: synthetic data only[/bold cyan]")
+    for record in results:
+        result = ScrapeResult(**record)
+        exporter.export(result, fmt="both")
+        analyzer.add(result)
+
+    report = analyzer.generate_report(save=True, demo=True)
+    console.print("[bold]Synthetic analytics report[/bold]")
+    console.print_json(data=report)
 
 
 def _print_summary(result):
@@ -112,42 +132,51 @@ def main():
     parser = argparse.ArgumentParser(
         description="Automated Social Media Scraping System"
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--platform", "-p",
-        choices=["instagram", "twitter", "youtube"],
+        choices=SCRAPERS,
         help="Target a single platform",
     )
     parser.add_argument("--target", "-t", help="Username or search query")
-    parser.add_argument(
+    mode.add_argument(
         "--schedule", "-s",
         action="store_true",
         help="Run on a recurring schedule (uses SCRAPE_INTERVAL_MINUTES from .env)",
     )
-    parser.add_argument(
-        "--report", "-r",
+    mode.add_argument(
+        "--demo",
         action="store_true",
-        help="Only generate an analytics report from existing data",
+        help="Analyse bundled synthetic data and export JSON/CSV offline",
     )
 
     args = parser.parse_args()
+    if bool(args.platform) != bool(args.target):
+        parser.error("--platform and --target must be used together")
 
     console.print(
         "\n[bold magenta]Social Media Scraping System[/bold magenta] v1.0\n"
     )
 
-    if args.platform and args.target:
-        single_scrape(args.platform, args.target)
-    elif args.schedule:
-        scheduler = ScrapeScheduler()
-        scheduler.start()
-    elif args.report:
-        console.print("[yellow]Report-only mode not yet connected to stored data.[/yellow]")
-        console.print("Run a scrape first, then the report is auto-generated.")
-    else:
-        console.print("[cyan]Running one full scrape cycle across all configured platforms...[/cyan]\n")
-        scheduler = ScrapeScheduler()
-        scheduler.run_cycle()
+    try:
+        if args.demo:
+            run_demo()
+        elif args.platform:
+            single_scrape(args.platform, args.target)
+        else:
+            from scheduler.runner import ScrapeScheduler
+
+            scheduler = ScrapeScheduler()
+            if args.schedule:
+                return scheduler.start()
+            else:
+                console.print("[cyan]Running one full scrape cycle across all configured platforms...[/cyan]\n")
+                return scheduler.run_cycle()
+    except Exception as exc:
+        logger.error("%s", exc)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

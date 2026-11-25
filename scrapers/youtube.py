@@ -4,13 +4,13 @@ metrics via the official YouTube Data API v3.
 """
 
 import logging
-from typing import Optional
-
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 import config
 from models.schemas import ScrapedVideo, ScrapeResult
 from scrapers.base import BaseScraper
+from scrapers.errors import ScrapeError, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +21,16 @@ class YouTubeScraper(BaseScraper):
     def __init__(self):
         super().__init__()
         self._service = None
+        # The client logs raw response details and request URLs (including keys)
+        # before raising HttpError. Keep only our sanitized diagnostics.
+        for name in ("googleapiclient.discovery", "googleapiclient.http", "googleapiclient.model"):
+            logging.getLogger(name).disabled = True
 
     @property
     def youtube(self):
         if self._service is None:
             if not config.YOUTUBE_API_KEY:
-                raise RuntimeError("YOUTUBE_API_KEY not configured")
+                raise ScrapeError("YOUTUBE_API_KEY not configured")
             self._service = build("youtube", "v3", developerKey=config.YOUTUBE_API_KEY)
         return self._service
 
@@ -37,9 +41,18 @@ class YouTubeScraper(BaseScraper):
         try:
             videos = self._search_videos(target)
             result.videos = videos
+        except HttpError as exc:
+            # The upstream message and URL may contain the API key.
+            status = exc.resp.status
+            message = "YouTube API request failed"
+            if isinstance(status, int) and 100 <= status <= 599:
+                message += f" (HTTP {status})"
+            logger.error("YouTube scrape failed for '%s': %s", target, message)
+            result.errors.append(message)
         except Exception as exc:
-            logger.error("YouTube scrape failed for '%s': %s", target, exc)
-            result.errors.append(str(exc))
+            message = safe_error_message(exc)
+            logger.error("YouTube scrape failed for '%s': %s", target, message)
+            result.errors.append(message)
 
         return result
 
@@ -51,6 +64,12 @@ class YouTubeScraper(BaseScraper):
             .list(q=query, type="video", part="id,snippet", maxResults=config.YOUTUBE_MAX_RESULTS)
             .execute()
         )
+        if (
+            not isinstance(search_response, dict)
+            or not isinstance(search_response.get("items"), list)
+            or search_response.get("error")
+        ):
+            raise ScrapeError("YouTube search returned an error or unexpected response")
 
         video_ids = [
             item["id"]["videoId"]
@@ -66,6 +85,12 @@ class YouTubeScraper(BaseScraper):
             .list(part="statistics,contentDetails,snippet", id=",".join(video_ids))
             .execute()
         )
+        if (
+            not isinstance(stats_response, dict)
+            or not isinstance(stats_response.get("items"), list)
+            or stats_response.get("error")
+        ):
+            raise ScrapeError("YouTube video details returned an error or unexpected response")
 
         videos: list[ScrapedVideo] = []
         for item in stats_response.get("items", []):

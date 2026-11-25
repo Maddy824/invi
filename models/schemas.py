@@ -4,7 +4,7 @@ All scrapers normalize their output into these schemas.
 """
 
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -51,7 +51,7 @@ class ScrapedProfile:
     following: int = 0
     post_count: int = 0
     posts: list = field(default_factory=list)
-    scraped_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    scraped_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self):
         d = asdict(self)
@@ -82,7 +82,7 @@ class ScrapedVideo:
 class ScrapeResult:
     platform: str
     query: str
-    scraped_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    scraped_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     profiles: list = field(default_factory=list)
     videos: list = field(default_factory=list)
     posts: list = field(default_factory=list)

@@ -1,14 +1,15 @@
 """
-Data exporter — persists ScrapeResult objects to JSON, CSV,
-and optionally MongoDB for downstream analytics pipelines.
+Data exporter — persists ScrapeResult objects to JSON and CSV.
 """
 
 import csv
 import json
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 import config
 from models.schemas import ScrapeResult
@@ -28,8 +29,17 @@ class DataExporter:
     def export(self, result: ScrapeResult, fmt: Optional[str] = None):
         """Export a ScrapeResult in the configured format(s)."""
         fmt = fmt or config.EXPORT_FORMAT
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        base_name = f"{result.platform}_{self._safe(result.query)}_{ts}"
+        if fmt not in ("json", "csv", "both"):
+            raise ValueError(f"Unsupported export format: {fmt}")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        prefix = f"{result.platform}_"
+        suffix = f"_{ts}_{uuid4().hex}"
+        # Reserve bytes for the platform, timestamp, UUID and longest extension.
+        query_budget = 255 - len(f"{prefix}{suffix}.json".encode("utf-8"))
+        safe_query = (
+            self._safe(result.query).encode("utf-8")[:query_budget].decode("utf-8", errors="ignore")
+        )
+        base_name = f"{prefix}{safe_query}{suffix}"
 
         if fmt in ("json", "both"):
             self.to_json(result, base_name)
@@ -40,7 +50,7 @@ class DataExporter:
 
     def to_json(self, result: ScrapeResult, base_name: str):
         path = self.output_dir / f"{base_name}.json"
-        with open(path, "w", encoding="utf-8") as f:
+        with open(path, "x", encoding="utf-8") as f:
             json.dump(result.to_dict(), f, indent=2, ensure_ascii=False)
         logger.info("  → JSON saved: %s", path)
 
@@ -51,28 +61,12 @@ class DataExporter:
             return
 
         path = self.output_dir / f"{base_name}.csv"
-        keys = list(rows[0].keys())
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=keys, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(rows)
+        keys = list(dict.fromkeys(key for row in rows for key in row))
+        with open(path, "x", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=keys)
+            writer.writerow({key: self._csv_value(key) for key in keys})
+            writer.writerows({key: self._csv_value(value) for key, value in row.items()} for row in rows)
         logger.info("  → CSV saved: %s (%d rows)", path, len(rows))
-
-    def to_mongo(self, result: ScrapeResult, collection_name: Optional[str] = None):
-        """Insert scrape result into MongoDB (requires pymongo)."""
-        try:
-            from pymongo import MongoClient
-
-            client = MongoClient(config.MONGO_URI)
-            db = client[config.MONGO_DB_NAME]
-            col = db[collection_name or result.platform]
-            doc = result.to_dict()
-            col.insert_one(doc)
-            logger.info("  → MongoDB: inserted into %s.%s", config.MONGO_DB_NAME, col.name)
-        except ImportError:
-            logger.warning("pymongo not installed — skipping MongoDB export")
-        except Exception as exc:
-            logger.error("MongoDB export failed: %s", exc)
 
     # ---- Helpers ----
 
@@ -81,16 +75,22 @@ class DataExporter:
         return "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
 
     @staticmethod
+    def _csv_value(value):
+        if isinstance(value, str) and re.match(r"^[\s\ufeff]*[=+\-@＝＋－＠\t\r\n]", value):
+            return "'" + value
+        return value
+
+    @staticmethod
     def _flatten(result: ScrapeResult) -> list[dict]:
         rows = []
         for p in result.profiles:
-            d = p.to_dict() if hasattr(p, "to_dict") else p
+            d = p.to_dict() if hasattr(p, "to_dict") else p.copy()
             d.pop("posts", None)
             rows.append(d)
         for v in result.videos:
             rows.append(v.to_dict() if hasattr(v, "to_dict") else v)
         for post in result.posts:
-            d = post.to_dict() if hasattr(post, "to_dict") else post
+            d = post.to_dict() if hasattr(post, "to_dict") else post.copy()
             d.pop("comments", None)
             d["hashtags"] = ", ".join(d.get("hashtags", []))
             d["mentions"] = ", ".join(d.get("mentions", []))

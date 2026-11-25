@@ -5,3 +5,5 @@ from models.schemas import (
     ScrapedVideo,
     ScrapeResult,
 )
+
+__all__ = ["ScrapedPost", "ScrapedComment", "ScrapedProfile", "ScrapedVideo", "ScrapeResult"]
