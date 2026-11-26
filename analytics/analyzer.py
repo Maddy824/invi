@@ -1,14 +1,13 @@
 """
-Analytics engine — computes engagement metrics, sentiment analysis,
-trend detection, and generates summary reports from scraped data.
+Summarize collected counts, like-based engagement, hashtag frequencies,
+and basic caption sentiment.
 """
 
 import json
 import logging
 from collections import Counter
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
+from datetime import datetime, timezone
+from uuid import uuid4
 
 import config
 from models.schemas import ScrapeResult
@@ -28,22 +27,49 @@ class SocialAnalyzer:
 
     # ---- High-level report ----
 
-    def generate_report(self, save: bool = True) -> dict:
-        """Produce a combined analytics report across all added results."""
+    def generate_report(
+        self, save: bool = True, *, demo: bool = False, failures: list[dict] | None = None,
+    ) -> dict:
+        """Produce a combined report, retaining cycle outcomes if an analytics section fails."""
         report = {
-            "generated_at": datetime.utcnow().isoformat(),
-            "platforms_analysed": list({r.platform for r in self._results}),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "platforms_analysed": sorted({r.platform for r in self._results}),
             "total_scrapes": len(self._results),
-            "instagram": self._instagram_insights(),
-            "twitter": self._twitter_insights(),
-            "youtube": self._youtube_insights(),
-            "top_hashtags": self._top_hashtags(20),
-            "sentiment_summary": self._sentiment_summary(),
         }
 
+        if demo:
+            report["synthetic_demo"] = True
+
+        if failures is not None:
+            report["attempted_scrapes"] = len(self._results) + len(failures)
+            report["failed_scrapes"] = len(failures)
+            report["failures"] = failures
+
+        for section, analyze in (
+            ("instagram", self._instagram_insights),
+            ("twitter", self._twitter_insights),
+            ("youtube", self._youtube_insights),
+            ("top_hashtags", self._top_hashtags),
+            ("sentiment_summary", self._sentiment_summary),
+        ):
+            try:
+                report[section] = analyze()
+            except Exception as exc:
+                if failures is None:
+                    raise
+                # A broken analytics section must not discard cycle outcomes
+                # or prevent independent sections from being saved.
+                message = f"Unexpected error ({type(exc).__name__})"
+                logger.error("Analytics section %s failed: %s", section, message)
+                report[section] = None
+                report.setdefault("analytics_errors", {})[section] = message
+
         if save:
-            path = config.DATA_DIR / f"report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
-            with open(path, "w", encoding="utf-8") as f:
+            prefix = "report_demo" if demo else "report"
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            path = config.DATA_DIR / f"{prefix}_{ts}_{uuid4().hex}.json"
+            config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+            with open(path, "x", encoding="utf-8") as f:
                 json.dump(report, f, indent=2, ensure_ascii=False)
             logger.info("Analytics report saved to %s", path)
 
@@ -59,17 +85,18 @@ class SocialAnalyzer:
             for p in r.profiles:
                 d = p.to_dict() if hasattr(p, "to_dict") else p
                 total_likes = sum(
-                    post.get("likes", 0) for post in d.get("posts", [])
+                    post.get("likes") or 0 for post in d.get("posts", [])
                 )
+                followers = d.get("followers") or 0
                 post_count = len(d.get("posts", []))
                 profiles.append({
                     "username": d.get("username"),
-                    "followers": d.get("followers", 0),
+                    "followers": followers,
                     "post_count": post_count,
                     "total_likes": total_likes,
                     "avg_likes_per_post": round(total_likes / max(post_count, 1), 1),
                     "engagement_rate": self._engagement_rate(
-                        total_likes, d.get("followers", 0), post_count
+                        total_likes, followers, post_count
                     ),
                 })
         return {"profiles_scraped": len(profiles), "profiles": profiles}
@@ -85,8 +112,8 @@ class SocialAnalyzer:
         if not all_posts:
             return {"tweets_collected": 0}
 
-        total_likes = sum(p.get("likes", 0) for p in all_posts)
-        total_shares = sum(p.get("shares", 0) for p in all_posts)
+        total_likes = sum(p.get("likes") or 0 for p in all_posts)
+        total_shares = sum(p.get("shares") or 0 for p in all_posts)
         return {
             "tweets_collected": len(all_posts),
             "total_likes": total_likes,
@@ -106,9 +133,9 @@ class SocialAnalyzer:
         if not all_videos:
             return {"videos_collected": 0}
 
-        total_views = sum(v.get("views", 0) for v in all_videos)
-        total_likes = sum(v.get("likes", 0) for v in all_videos)
-        top_video = max(all_videos, key=lambda v: v.get("views", 0))
+        total_views = sum(v.get("views") or 0 for v in all_videos)
+        total_likes = sum(v.get("likes") or 0 for v in all_videos)
+        top_video = max(all_videos, key=lambda v: v.get("views") or 0)
         return {
             "videos_collected": len(all_videos),
             "total_views": total_views,
@@ -116,7 +143,7 @@ class SocialAnalyzer:
             "avg_views": round(total_views / len(all_videos)),
             "top_video": {
                 "title": top_video.get("title"),
-                "views": top_video.get("views"),
+                "views": top_video.get("views") or 0,
                 "video_id": top_video.get("video_id"),
             },
         }

@@ -33,12 +33,10 @@ YOUTUBE_MAX_RESULTS = int(os.getenv("YOUTUBE_MAX_RESULTS", "10"))
 # --- Scheduler settings ---
 SCRAPE_INTERVAL_MINUTES = int(os.getenv("SCRAPE_INTERVAL_MINUTES", "60"))
 
-# --- MongoDB settings (optional) ---
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "social_scraper")
-
 # --- Selenium / Browser settings ---
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
+CHROME_NO_SANDBOX = os.getenv("CHROME_NO_SANDBOX", "false").lower() == "true"
+HTTP_TIMEOUT_SECONDS = 30
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "

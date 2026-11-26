@@ -7,11 +7,13 @@ import http.client
 import json
 import logging
 import urllib.parse
+from contextlib import closing
 from typing import Optional
 
 import config
 from models.schemas import ScrapedPost, ScrapeResult
 from scrapers.base import BaseScraper
+from scrapers.errors import ScrapeError, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -32,27 +34,30 @@ class TwitterScraper(BaseScraper):
         if not config.TWITTER_BEARER_TOKEN:
             result.errors.append("TWITTER_BEARER_TOKEN not configured")
             return result
+        if not config.WEBSCRAPING_AI_KEY:
+            result.errors.append("WEBSCRAPING_AI_KEY not configured")
+            return result
 
         try:
             self._acquire_guest_token()
             tweets = self._search_tweets(target)
             result.posts = tweets
         except Exception as exc:
-            logger.error("Twitter scrape failed for '%s': %s", target, exc)
-            result.errors.append(str(exc))
+            message = safe_error_message(exc)
+            logger.error("Twitter scrape failed for '%s': %s", target, message)
+            result.errors.append(message)
 
         return result
 
     # ---- internal helpers ----
 
     def _conn(self) -> http.client.HTTPSConnection:
-        return http.client.HTTPSConnection(API_HOST)
+        return http.client.HTTPSConnection(API_HOST, timeout=config.HTTP_TIMEOUT_SECONDS)
 
     def _acquire_guest_token(self):
         if self._guest_token:
             return
 
-        conn = self._conn()
         params = {
             "api_key": config.WEBSCRAPING_AI_KEY,
             "js": "false",
@@ -60,19 +65,16 @@ class TwitterScraper(BaseScraper):
             "url": "https://api.twitter.com/1.1/guest/activate.json",
             "headers[Authorization]": f"Bearer {config.TWITTER_BEARER_TOKEN}",
         }
-        conn.request("POST", f"/html?{urllib.parse.urlencode(params)}")
-        res = conn.getresponse()
-        data = json.loads(res.read().decode("utf-8"))
+        data = self._request_json("POST", params, "Twitter guest token request")
 
-        if "guest_token" not in data:
-            raise RuntimeError(f"Failed to obtain guest token: {json.dumps(data)[:300]}")
+        token = data.get("guest_token")
+        if data.get("errors") or not isinstance(token, str) or not token.strip():
+            raise ScrapeError("Failed to obtain Twitter guest token")
 
-        self._guest_token = data["guest_token"]
-        logger.info("Acquired Twitter guest token: %s", self._guest_token)
+        self._guest_token = token
+        logger.info("Acquired Twitter guest token")
 
     def _search_tweets(self, query: str) -> list[ScrapedPost]:
-        conn = self._conn()
-
         twitter_params = {
             "q": query,
             "count": config.TWITTER_TWEET_COUNT,
@@ -97,24 +99,31 @@ class TwitterScraper(BaseScraper):
             "headers[X-Guest-Token]": self._guest_token,
         }
 
-        conn.request("GET", f"/html?{urllib.parse.urlencode(api_params)}")
-        res = conn.getresponse()
-        data = json.loads(res.read().decode("utf-8"))
-
+        data = self._request_json("GET", api_params, "Twitter search")
         return self._parse_tweets(data)
 
-    def _parse_tweets(self, data: dict) -> list[ScrapedPost]:
-        tweets_map = (
-            data.get("globalObjects", {}).get("tweets", {})
-        )
-        users_map = (
-            data.get("globalObjects", {}).get("users", {})
-        )
+    def _request_json(self, method: str, params: dict, operation: str) -> dict:
+        with closing(self._conn()) as conn:
+            conn.request(method, f"/html?{urllib.parse.urlencode(params)}")
+            res = conn.getresponse()
+            if res.status != 200:
+                raise ScrapeError(f"{operation} failed (HTTP {res.status})")
+            data = json.loads(res.read().decode("utf-8"))
+        if not isinstance(data, dict):
+            raise ScrapeError(f"{operation} returned an unexpected response")
+        return data
 
+    def _parse_tweets(self, data: dict) -> list[ScrapedPost]:
+        objects = data.get("globalObjects")
+        if (
+            data.get("errors")
+            or not isinstance(objects, dict)
+            or not isinstance(objects.get("tweets"), dict)
+        ):
+            raise ScrapeError("Twitter search returned an error or unexpected response")
+        tweets_map = objects["tweets"]
         posts: list[ScrapedPost] = []
         for tweet_id, tweet in tweets_map.items():
-            user = users_map.get(str(tweet.get("user_id_str", "")), {})
-
             text = tweet.get("full_text", tweet.get("text", ""))
             hashtags = [
                 h["text"]

@@ -15,6 +15,7 @@ import requests_html
 import config
 from models.schemas import ScrapedComment, ScrapedPost, ScrapedProfile, ScrapeResult
 from scrapers.base import BaseScraper
+from scrapers.errors import safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +30,22 @@ class InstagramScraper(BaseScraper):
             profile = self._fetch_profile(target)
             if profile:
                 result.profiles.append(profile)
+            else:
+                result.errors.append("No profile data returned")
         except Exception as exc:
-            logger.error("Instagram scrape failed for %s: %s", target, exc)
-            result.errors.append(str(exc))
+            message = safe_error_message(exc)
+            logger.error("Instagram scrape failed for %s: %s", target, message)
+            result.errors.append(message)
         return result
 
     # ---- internal helpers ----
 
     def _fetch_profile(self, username: str) -> Optional[ScrapedProfile]:
         url = f"https://instagram.com/{username}/?__a=1&__d=dis"
-        session = requests_html.HTMLSession()
-
         headers = {"User-Agent": config.USER_AGENT}
-        response = self.retry(lambda: session.get(url, headers=headers))
+        timeout = (config.HTTP_TIMEOUT_SECONDS, config.HTTP_TIMEOUT_SECONDS)
+        with requests_html.HTMLSession() as session:
+            response = self.retry(lambda: session.get(url, headers=headers, timeout=timeout))
 
         if response.status_code != 200:
             logger.warning("HTTP %d for %s", response.status_code, username)
@@ -140,5 +144,5 @@ class InstagramScraper(BaseScraper):
                 return self._parse_profile(username, user_data)
             return None
         except Exception as exc:
-            logger.error("Browser fallback failed for %s: %s", username, exc)
+            logger.error("Browser fallback failed for %s: %s", username, safe_error_message(exc))
             return None

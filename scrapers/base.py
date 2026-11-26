@@ -12,6 +12,7 @@ from selenium import webdriver
 from selenium_stealth import stealth
 
 import config
+from scrapers.errors import safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ class BaseScraper(abc.ABC):
         opts = webdriver.ChromeOptions()
         if config.HEADLESS:
             opts.add_argument("--headless=new")
-        opts.add_argument("--no-sandbox")
+        if config.CHROME_NO_SANDBOX:
+            opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
         opts.add_argument("start-maximized")
         opts.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -74,8 +76,10 @@ class BaseScraper(abc.ABC):
             except Exception as exc:
                 last_exc = exc
                 wait = delay * attempt
-                logger.warning("Attempt %d failed: %s – retrying in %.1fs", attempt, exc, wait)
-                time.sleep(wait)
+                if attempt < retries:
+                    logger.warning("Attempt %d failed: %s – retrying in %.1fs",
+                                   attempt, safe_error_message(exc), wait)
+                    time.sleep(wait)
         raise last_exc  # type: ignore[misc]
 
     # ---- Abstract interface ----

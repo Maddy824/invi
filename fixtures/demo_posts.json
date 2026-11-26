@@ -1,0 +1,78 @@
+[
+  {
+    "platform": "instagram",
+    "query": "demo_synthetic",
+    "scraped_at": "2026-01-01T00:00:00Z",
+    "profiles": [
+      {
+        "platform": "instagram",
+        "username": "fictional_demo_profile",
+        "followers": 100,
+        "posts": [
+          {
+            "platform": "instagram",
+            "post_id": "demo-post-1",
+            "caption": "Wonderful fictional garden.",
+            "likes": 12,
+            "hashtags": ["demo", "garden"]
+          },
+          {
+            "platform": "instagram",
+            "post_id": "demo-post-2",
+            "caption": "Terrible fictional weather.",
+            "likes": 8,
+            "hashtags": ["Demo"]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "platform": "twitter",
+    "query": "demo_synthetic",
+    "scraped_at": "2026-01-01T00:00:00Z",
+    "posts": [
+      {
+        "platform": "twitter",
+        "post_id": "demo-post-3",
+        "caption": "Good fictional picnic.",
+        "likes": 5,
+        "shares": 1,
+        "hashtags": ["demo"],
+        "mentions": []
+      },
+      {
+        "platform": "twitter",
+        "post_id": "demo-post-4",
+        "caption": "Bad fictional traffic.",
+        "likes": 15,
+        "shares": 3,
+        "hashtags": ["garden"],
+        "mentions": []
+      }
+    ]
+  },
+  {
+    "platform": "youtube",
+    "query": "demo_synthetic",
+    "scraped_at": "2026-01-01T00:00:00Z",
+    "videos": [
+      {
+        "platform": "youtube",
+        "video_id": "demo-video-1",
+        "title": "Fictional garden tour",
+        "channel": "Fictional demo channel",
+        "views": 120,
+        "likes": 10
+      },
+      {
+        "platform": "youtube",
+        "video_id": "demo-video-2",
+        "title": "Fictional picnic",
+        "channel": "Fictional demo channel",
+        "views": 80,
+        "likes": 6
+      }
+    ]
+  }
+]
